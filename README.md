@@ -32,7 +32,7 @@ Microsoft Access VBA
 
 ## Authors
 
-* **Sara Gleghorn** - *Initial work* - [PurpleBooth](https://github.com/PurpleBooth)
+* **Sara Gleghorn** - *Initial work* - [Sara Gleghorn](https://github.com/SaraGleghorn)
 
 ## License
 
