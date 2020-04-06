@@ -1,5 +1,6 @@
 # Script Dependency Mapper
-Crawls through all your SQL scripts to extract and map dependencies between tables and scripts.
+This is a tool for unpicking your SQL scripts if you've gotten into a mess with many SQL scripts and you don't know what you can safely change or delete.
+This crawls through all your SQL scripts to extract and map dependencies between tables and scripts, and returns all the tables used and what they're used for (e.g myTable is CREATED in script1.sql and SELECTED in script2.sql, so you know that if you delete script1.sql it'll break your script2.sql. Hopefully, your naming conventions are better than this.)
 
 ## Getting Started
 
@@ -29,6 +30,9 @@ On the main form, click "Detect dependencies." This will list all table referenc
 ## Built With
 
 Microsoft Access VBA
+
+## Future Plans
+I'll be working on generating a visual script hierarchy so that it's easier to see how scripts are related.
 
 ## Authors
 
