@@ -10,13 +10,15 @@ Function fn_template(foo As Variant) As Boolean
 ' Version Control:
 ' Vers  Author         Authoriser   Date        Change
 ' 1     Sara Gleghorn  --           dd/mm/yyyy  Original
+' 2     Sara Gleghorn  --           dd/mm/yyyy  Added showErrorHandlerPopup call
+'                                               Amended spacing on comments
 ' *****************************************************************************
 ' Expected Parameters:
 'Dim Foo    As Bar  ' Description
 
 Definitions: '-----------------------------------------------------------------
-Dim strFnName       As String           ' The name of this function (for debugging messages)
-Dim strSection      As String           ' The name of the section (for debugging messages)
+Dim strFnName       As String   ' The name of this function (for debugging messages)
+Dim strSection      As String   ' The name of the section (for debugging messages)
 
 On Error GoTo ErrorHandler
 CheckPrerequisites: ' ---------------------------------------------------------
@@ -31,6 +33,7 @@ Exit Function
 ErrorHandler: ' ----------------------------------------------------------------
 Debug.Print Now() & " " & strFnName & "." & strSection & ": " _
     & "Error: " & Err.Description
+Call showErrorHandlerPopup(strFnName, strSection, Err.Description)
 Exit Function
 End Function
 

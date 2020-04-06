@@ -8,6 +8,8 @@ Function sqlDependencyMapper() As Boolean
 ' Version Control:
 ' Vers  Author         Authoriser   Date        Change
 ' 1     Sara Gleghorn  --           31/03/2020  Original
+' 2     Sara Gleghorn  --           06/04/2020  Added showErrorHandlerPopup calls
+'                                               Improved error handling around missing files
 ' *****************************************************************************
 ' Expected Parameters:
 ' None
@@ -15,9 +17,11 @@ Definitions: '-----------------------------------------------------------------
 Dim strFnName   As String           ' The name of this function (for debugging messages)
 Dim strSection  As String           ' The name of the section (for debugging messages)
 
-Dim db          As DAO.Database
-Dim rsFileList  As DAO.Recordset
-Dim FSO         As FileSystemObject
+Dim db          As DAO.Database     ' This database
+Dim rsFileList  As DAO.Recordset    ' List of all the files to parse (populated by populateFileList function)
+Dim FSO         As FileSystemObject ' For navigating file system
+Dim strMsg      As String           ' Messages for listing missing files.
+Dim bSupress    As Boolean          ' If yes, stop further popups about missing files
 
 On Error GoTo ErrorHandler
 
@@ -34,7 +38,7 @@ ClearExistingData: ' -----------------------------------------------------------
 strSection = "ClearExistingData"
 db.Execute ("DELETE * FROM parse_errors")
 db.Execute ("DELETE * FROM table_usage")
-Call updateLog("Cleare table_usage table")
+Call updateLog("Clear table_usage table")
 
 LoopThroughFiles: ' -----------------------------------------------------------
 strSection = "LoopThroughFiles"
@@ -42,17 +46,28 @@ strSection = "LoopThroughFiles"
 Do Until rsFileList.EOF
 
     If FSO.FileExists(rsFileList!filepath) = False Then
-        Debug.Print Now() & " " & strFnName & "." & strSection & ": " _
-            & vbNewLine; "    Could not find "; rsFileList!filepath
-        updateLog ("File not found: " & rsFileList!filepath)
+        If bSupress = False Then
+            If showErrorHandlerPopup(strFnName, strSection, _
+                "Some files are missing. Would you like to continue?", _
+                "(future messages will be suppressed.)", vbYesNo) = vbYes Then
+                    bSupress = True
+                    strMsg = "Missing Files: " _
+                        & vbNewLine & "    " & strFnName
+            Else
+                GoTo ExitMissingFile
+            End If
+        Else
+            strMsg = strMsg & vbNewLine & "    " & strFnName
+        End If
     Else
         Debug.Print Now() & " " & strFnName & "." & strSection & ": " _
             & vbNewLine; "    Preparing to parse: " & rsFileList!filepath
-        extractDependenciesFromFile (rsFileList!filepath)
+        Call extractDependenciesFromFile(rsFileList!filepath)
     End If
-
     rsFileList.MoveNext
 Loop
+
+If strMsg <> vbNullString Then GoTo ExitMissingFile
 
 Cleanup: ' --------------------------------------------------------------------
 strSection = "Cleanup"
@@ -64,12 +79,21 @@ Exit Function
 ErrorHandler: ' ----------------------------------------------------------------
 Debug.Print Now() & " " & strFnName & "." & strSection & ": " _
     & "Error: " & Err.Description
+Call showErrorHandlerPopup(strFnName, strSection, Err.Description)
 Exit Function
 
 ErrorNoFiles: ' ----------------------------------------------------------------
 Debug.Print Now() & " " & strFnName & "." & strSection & ": " _
-    & "Error: " & Err.Description
+    & "Error: There are no files to parse. Check the script_filepath table"
+Call showErrorHandlerPopup(strFnName, strSection, _
+    "There are no files to parse", _
+    "Check that the script_folder table contains the correct folders, " _
+    & "and that 'Find .SQL files' (function populateFileList) has run first.", _
+    vbOKOnly)
 Exit Function
+
+ExitMissingFile: ' ------------------------------------------------------------
+Debug.Print Now() & " " & strFnName & "." & strSection & ": " & strMsg
 
 End Function
 
@@ -80,12 +104,12 @@ Function populateFileList() As Boolean
 '   Reference -  Microsoft Scripting Runtime (for FileSystemObject)
 ' Version Control:
 ' Vers  Author         Authoriser   Date        Change
-' 1     Sara Gleghorn  --           24/03/2020  Original
-' *****************************************************************************
-' Expected Parameters:
-Dim bLogInfo        As Boolean          ' Whether to log information
-    bLogInfo = True
+' 1     Sara Gleghorn  --           24/03/2020  Original.
+' 2     Sara Gleghorn  --           06/04/2020  Handles apostrophes in filenames.
+'                                               Added updated error handler.
+'                                               Removed unused variables (i, bLogInfo)
 
+' *****************************************************************************
 Definitions: ' ----------------------------------------------------------------
 Dim strFnName       As String           ' The name of this function (for debugging messages)
 Dim strSection      As String           ' The name of the strSection (for debugging messages)
@@ -145,6 +169,7 @@ Else
 End If
 
 db.Execute strSQL, dbFailOnError
+strSQL = vbNullString
 
 RetrieveFiles: '---------------------------------------------------------------
 strSection = "RetrieveFiles"
@@ -163,6 +188,8 @@ Do Until rsFolderList.EOF = True
     Do While colFiles.Count > 0
         strFilePath = colFiles(1)
         colFiles.Remove 1
+        ' Sanitise before insert
+        strFilePath = Replace(strFilePath, "'", "''")
         If DCount("*", "script_filepath", "filepath = '" & strFilePath & "'") = 0 Then
             strSQL = "INSERT INTO script_filepath VALUES ('" & strFilePath & "');"
             db.Execute strSQL
@@ -174,20 +201,23 @@ Loop
 
 Cleanup: ' -------------------------------------------------------------------
 If updateLog("Populate script_filepath table") = False Then GoTo ErrorMakingLog
+populateFileList = True
 
-If bLogInfo = True Then Debug.Print Now() & " " & strFnName & ": " _
-    & "Ended without errors."
 Exit Function
 
 ErrorHandler: ' ---------------------------------------------------------------
 Debug.Print Now() & " " & strFnName & "." & strSection & ": " _
     & "Error: " & Err.Description
+Call showErrorHandlerPopup(strFnName, strSection, Err.Description)
 Exit Function
 
 ErrorMissingTable: ' ----------------------------------------------------------
 Debug.Print Now() & " " & strFnName & "." & strSection & ": " _
     & "search_folders table doesn't exist. " _
     & "Cannot retrieve list of folders to search. Quitting."
+Call showErrorHandlerPopup(strFnName, strSection, _
+    "Cannot locate the script_folder table. ", _
+    "Check that this table has not been deleted or renamed.")
 Exit Function
 
 ErrorBadFolder: ' -------------------------------------------------------------
@@ -195,11 +225,20 @@ Debug.Print Now() & " " & strFnName & "." & strSection & ": " _
     & "Could not find the following folders: " _
     & vbNewLine & strMsg _
     & "Quitting."
+Call showErrorHandlerPopup(strFnName, strSection, _
+    "Could not find folders: " & vbNewLine & strMsg, _
+    "Check the folder paths listed in script_folder table are correct, " _
+    & "and that you have permissions to access the folder.")
+
 Exit Function
 
 ErrorMakingLog: ' -------------------------------------------------------------
 Debug.Print Now() & " " & strFnName & "." & strSection & ": " _
     & "Errors updating log table. Quitting."
+Call showErrorHandlerPopup(strFnName, strSection, _
+    "Error updating log table: " & Err.Description, _
+    "Check that the log_last_update table exists and is writable.")
+    
 Exit Function
 
 End Function
@@ -217,6 +256,8 @@ Function extractDependenciesFromQuery(arQuery As Variant, _
 ' Version Control:
 ' Vers  Author         Authoriser   Date        Change
 ' 1     Sara Gleghorn  --           01/04/2020  Original
+' 2     Sara Gleghorn  --           06/04/2020  Bugfix to stop capturing aliases
+'                                               after source subqueries as tablenames
 ' *****************************************************************************
 ' Expected Parameters:
 'Dim arQuery()    As Variant  ' The query to parse, with the linenumber then the line content
@@ -374,6 +415,11 @@ For iLine = LBound(arQuery, 2) To UBound(arQuery, 2) ' Each line
                 strSubquery = vbNullString
                 iSubqueryRow = 0
                 ReDim arSubquery(1, iSubqueryRow)
+                
+                If bCaptureSourceMode = True Then
+                    ' What follows should be either a comma or an alias
+                    bCaptureAliasMode = True
+                End If
             End If
         Else
             ' The end of a line will always be the end of a word
@@ -539,12 +585,16 @@ End Function
 
 Function extractDependenciesFromFile(strFilePath As String) As Boolean
 ' Purpose: ********************************************************************
+' Splits an SQL file into separate queries, and sends them to
+' extractDependenciesFromQuery.
 '
 ' Requirements:
 '
 ' Version Control:
 ' Vers  Author         Authoriser   Date        Change
 ' 1     Sara Gleghorn  --           31/03/2020  Original
+' 2     Sara Gleghorn  --           06/04/2020  Add recognition for EXECUTE IMMEDIATE queries.
+'                                               Added showErrorHandlerPopup calls
 ' *****************************************************************************
 ' Expected Parameters:
 'Dim strFilePath    As String  ' The script to extract dependancies from
@@ -552,6 +602,7 @@ Function extractDependenciesFromFile(strFilePath As String) As Boolean
 Definitions: '-----------------------------------------------------------------
 Dim strFnName       As String           ' The name of this function (for debugging messages)
 Dim strSection      As String           ' The name of the section (for debugging messages)
+
 Dim db              As DAO.Database     ' This database
 Dim strErrorSQL     As String           ' String for error logging query
 Dim strTempPath     As String           ' The folder we'll store our copy in while parsing it.
@@ -568,6 +619,7 @@ Dim strCleanLine    As String           ' For passing lines after multiline comm
 Dim bQueryEnd       As Boolean
 Dim bLiteralString  As Boolean          ' For escaping semicolons within code
 Dim strRemainder    As String           ' Any code remaining after semicolon
+Dim bTransaction    As Boolean          ' Are we inside an EXECUTE IMMEDIATE transaction?
 
 On Error GoTo ErrorHandler
 strFnName = "extractScriptDependencies"
@@ -600,6 +652,7 @@ CopyFileToTemp: ' -------------------------------------------------------------
 strSection = "CopyFileToTemp"
 
 strTempPath = strTempPath & Right(strFilePath, Len(strFilePath) - InStrRev(strFilePath, "\"))
+If strFilePath = strTempPath Then GoTo ErrorSamePath
 FSO.CopyFile strFilePath, strTempPath, True
 Set fileTemp = FSO.GetFile(strTempPath)
 
@@ -652,6 +705,18 @@ Do While ts.AtEndOfStream = False
     If InStr(1, strLine, "--") <> 0 Then
         strLine = Left(strLine, InStr(1, strLine, "--") - 1)
     End If
+    
+    ' Check for transactions
+    Select Case strLine
+        Case "BEGIN", "END;", "/", "COMMIT", "COMMIT;"
+            strLine = vbNullString
+    End Select
+    
+    If InStr(1, strLine, "EXECUTE IMMEDIATE") <> 0 Then
+        bTransaction = True
+        strLine = Replace(strLine, "EXECUTE IMMEDIATE '", "")
+    End If
+    
     ' Check for semi colons signalling the end of the query
     If InStr(strLine, ";") = 0 Then
         ' Do Nothing
@@ -663,13 +728,19 @@ Do While ts.AtEndOfStream = False
             strLine = Trim(Left(strLine, InStr(strLine, ";")))
         Else
             For iChar = 1 To Len(strLine)
-                If Mid(strLine, iChar, 1) = "'" Then
+                If bTransaction = True And Mid(strLine, iChar, 2) = "''" Then
+                    bLiteralString = Not bLiteralString
+                ElseIf bTransaction = False And Mid(strLine, iChar, 1) = "'" Then
                     bLiteralString = Not bLiteralString
                 ElseIf Mid(strLine, iChar, 1) = ";" Then
                     If bLiteralString = False Then
                         bQueryEnd = True
                         strRemainder = Mid(strLine, iChar + 1, Len(strLine) - iChar)
                         strLine = Trim(Left(strLine, iChar))
+                        If bTransaction = True Then
+                            ' Chop off the "';" at the end
+                            strLine = Left(strLine, Len(strLine) - 2)
+                        End If
                         Exit For
                     End If
                 End If
@@ -678,12 +749,19 @@ Do While ts.AtEndOfStream = False
     End If
     
     If strLine <> vbNullString Then
+        
+        ' Manage transaction syntax
+        If bTransaction = True Then
+            strLine = Replace(strLine, "''", "'")
+        End If
+        
         arQuery(0, iQueryLine) = iFileLine
         arQuery(1, iQueryLine) = strLine
         iQueryLine = iQueryLine + 1
     End If
     
     If bQueryEnd = True Then
+    
         If extractDependenciesFromQuery(arQuery, strFilePath, "SQL File") = False Then
             strErrorSQL = "INSERT INTO parse_errors ( " _
                 & vbNewLine & "    " & "#" & Format(Now(), "dd-mmm-yyyy hh:nn:ss") & "#, " _
@@ -728,6 +806,10 @@ extractDependenciesFromFile = True
 
 ts.Close
 If FSO.FileExists(strTempPath) = True Then
+    ' FileCopy will have inherited file permissions. Remove ReadOnly if it was inherited.
+    If fileTemp.Attributes And ReadOnly Then
+        fileTemp.Attributes = fileTemp.Attributes - ReadOnly
+    End If
     FSO.DeleteFile (strTempPath)
 End If
 
@@ -739,6 +821,7 @@ Exit Function
 ErrorHandler: ' ----------------------------------------------------------------
 Debug.Print Now() & " " & strFnName & "." & strSection & ": " _
     & "Error: " & Err.Description
+Call showErrorHandlerPopup(strFnName, strSection, Err.Description, , vbCritical)
 Exit Function
 
 ErrorBadFile: ' ---------------------------------------------------------------
@@ -746,13 +829,34 @@ Debug.Print Now() & " " & strFnName & "." & strSection & ": " _
     & "Could not find the following file: " _
     & vbNewLine & "    " & """" & strFilePath _
     & vbNewLine & "    Quitting."
+Call showErrorHandlerPopup(strFnName, strSection, "Could not find file: " _
+    & vbNewLine & """" & strFilePath & """", _
+    "Check the file still exists and you have access to it.", _
+    vbCritical)
 Exit Function
 
-ErrorMakingDirectory:
+ErrorSamePath: '---------------------------------------------------------------
+Debug.Print Now() & " " & strFnName & "." & strSection & ": " _
+    & "Original file and destination for temporary copy are the same: " _
+    & vbNewLine & "    " & """" & strFilePath _
+    & vbNewLine & "    Quitting."
+Call showErrorHandlerPopup(strFnName, strSection, _
+    "Original file and destination for temporary copy are the same: " _
+    & vbNewLine & """" & strFilePath & """" _
+    & vbNewLine & "Aborting function as a precaution against deleting original files.", _
+    "Change the Temporary File Location as defined in the 'config' table.", _
+    vbCritical)
+Exit Function
+
+ErrorMakingDirectory: ' -------------------------------------------------------
 Debug.Print Now() & " " & strFnName & "." & strSection & ": " _
     & "Errors while trying to make the directory: " _
     & vbNewLine & "    " & """" & strTempPath & """" _
     & vbNewLine & "    Quitting."
+Call showErrorHandlerPopup(strFnName, strSection, "Could not make directory: " _
+    & vbNewLine & """" & strTempPath & """", _
+    "Check whether you have permissions to the path in config", _
+    vbCritical)
 Exit Function
 End Function
 

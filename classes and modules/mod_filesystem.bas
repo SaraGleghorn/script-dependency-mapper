@@ -86,10 +86,16 @@ Exit Function
 ErrorHandler: ' ---------------------------------------------------------------
 Debug.Print Now() & " " & strFnName & "." & strSection & ": " _
     & "Error: " & Err.Description
+Call showErrorHandlerPopup(strFnName, strSection, Err.Description)
 Exit Function
 
 ErrorBadFolder: ' -------------------------------------------------------------
-Debug.Print Now() & " " & strFnName & ": " & "Folder " & """" & strFolderPath & """" & " does not exist."
+Debug.Print Now() & " " & strFnName & ": " & "Folder " & """" & strFolderPath _
+    & """" & " does not exist."
+Call showErrorHandlerPopup(strFnName, strSection, _
+    "Folder " & """" & strFolderPath & """" & " does not exist.", _
+    "Please check if the path in the script_folder table is valid and that " _
+        & "the folder exists", vbCritical)
 End Function
 
 Function MakeNestedDirectory(strFolderPath As String) As Boolean

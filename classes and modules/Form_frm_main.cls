@@ -12,8 +12,13 @@ Option Explicit
 
 Private Sub btn_findfiles_Click()
 
-Call populateFileList
-MsgBox DCount("*", "script_filepath") & " script files found", vbOKOnly
+If populateFileList() = True Then
+    MsgBox DCount("*", "script_filepath") & " script files found", vbOKOnly
+Else
+    MsgBox "There were errors finding SQL files. " _
+    & "Check the VBA (Alt + F11) immediate window for error messages.", _
+    vbCritical, "Search Failed"
+End If
 
 End Sub
 
