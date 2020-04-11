@@ -258,6 +258,7 @@ Function extractDependenciesFromQuery(arQuery As Variant, _
 ' 1     Sara Gleghorn  --           01/04/2020  Original
 ' 2     Sara Gleghorn  --           06/04/2020  Bugfix to stop capturing aliases
 '                                               after source subqueries as tablenames
+' 3     Sara Gleghorn  --           11/04/2020  Bugfix to exclude ";" from table names
 ' *****************************************************************************
 ' Expected Parameters:
 'Dim arQuery()    As Variant  ' The query to parse, with the linenumber then the line content
@@ -390,6 +391,9 @@ For iLine = LBound(arQuery, 2) To UBound(arQuery, 2) ' Each line
                     bSkipChar = True
                     strSubquery = vbNullString
                     iBrackets = iBrackets + 1
+                Case ";"
+                    bSkipChar = True
+                    bPhrase = True
             End Select
         End If
         
@@ -595,6 +599,8 @@ Function extractDependenciesFromFile(strFilePath As String) As Boolean
 ' 1     Sara Gleghorn  --           31/03/2020  Original
 ' 2     Sara Gleghorn  --           06/04/2020  Add recognition for EXECUTE IMMEDIATE queries.
 '                                               Added showErrorHandlerPopup calls
+' 3     Sara Gleghorn  --           11/04/2020  Fixed error on logging errors in files
+'                                               when there are apostrophes in filename.
 ' *****************************************************************************
 ' Expected Parameters:
 'Dim strFilePath    As String  ' The script to extract dependancies from
@@ -765,7 +771,7 @@ Do While ts.AtEndOfStream = False
         If extractDependenciesFromQuery(arQuery, strFilePath, "SQL File") = False Then
             strErrorSQL = "INSERT INTO parse_errors ( " _
                 & vbNewLine & "    " & "#" & Format(Now(), "dd-mmm-yyyy hh:nn:ss") & "#, " _
-                & vbNewLine & "    " & "'" & strFilePath & "'" _
+                & vbNewLine & "    " & "'" & Replace(strFilePath, "'", "''") & "'" _
                 & vbNewLine & "    " & "Error parsing query within file." _
                 & vbNewLine & "    " & "'" & iFileLine & "')"
             db.Execute strErrorSQL
@@ -790,7 +796,7 @@ Else
     If extractDependenciesFromQuery(arQuery, strFilePath, "SQL File") = False Then
         strErrorSQL = "INSERT INTO parse_errors ( " _
             & vbNewLine & "    " & "#" & Format(Now(), "dd-mmm-yyyy hh:nn:ss") & "#, " _
-            & vbNewLine & "    " & "'" & strFilePath & "'" _
+            & vbNewLine & "    " & "'" & Replace(strFilePath, "'", "''") & "'" _
             & vbNewLine & "    " & "Error parsing query within file." _
             & vbNewLine & "    " & "'" & iFileLine & "')"
         db.Execute strErrorSQL

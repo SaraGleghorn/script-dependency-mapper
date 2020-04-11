@@ -20,6 +20,8 @@ Function showErrorHandlerPopup( _
 ' Version Control:
 ' Vers  Author         Authoriser   Date        Change
 ' 1     Sara Gleghorn  --           06/04/2020  Original
+' 2     Sara Gleghorn  --           11/04/2020  Fixed a bug preventing message
+'                                               box result being returned
 ' *****************************************************************************
 '' Expected Parameters:
 'Dim strErrorFunction    As String   ' The name of the errored function
@@ -58,11 +60,10 @@ strMsgBox = "Function: " & strErrorFunction _
     & vbNewLine _
     & vbNewLine & strActionMessage
     
-MsgBox strMsgBox, vbCritical, "Custom Error Handler"
+showErrorHandlerPopup = MsgBox(strMsgBox, vbCritical, "Custom Error Handler")
 
 Cleanup: ' --------------------------------------------------------------------
 strSection = "Cleanup"
-showErrorHandlerPopup = True
 Exit Function
 
 ErrorHandler: ' ----------------------------------------------------------------
