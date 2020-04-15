@@ -6,22 +6,27 @@ Function sqlDependencyMapper() As Boolean
 ' Purpose: ********************************************************************
 ' Calls extractDependenciesFromFile for each file in script_filepath
 ' Version Control:
-' Vers  Author         Authoriser   Date        Change
-' 1     Sara Gleghorn  --           31/03/2020  Original
-' 2     Sara Gleghorn  --           06/04/2020  Added showErrorHandlerPopup calls
-'                                               Improved error handling around missing files
+' Vers      Author          Date        Change
+' 1         Sara Gleghorn   31/03/2020  Original
+' 1.1       Sara Gleghorn   06/04/2020  Added showErrorHandlerPopup calls
+'                                       Improved error handling around missing
+'                                       files
+' 1.2       Sara Gleghorn   15/04/2020  Added splitObjectNames call
 ' *****************************************************************************
 ' Expected Parameters:
 ' None
 Definitions: '-----------------------------------------------------------------
-Dim strFnName   As String           ' The name of this function (for debugging messages)
-Dim strSection  As String           ' The name of the section (for debugging messages)
-
+Dim strFnName   As String           ' The name of this function
+                                    ' (for debugging messages)
+Dim strSection  As String           ' The name of the section
+                                    ' (for debugging messages)
+                                    
 Dim db          As DAO.Database     ' This database
-Dim rsFileList  As DAO.Recordset    ' List of all the files to parse (populated by populateFileList function)
+Dim rsFileList  As DAO.Recordset    ' List of all the files to parse,
+                                    ' populated by populateFileList()
 Dim FSO         As FileSystemObject ' For navigating file system
 Dim strMsg      As String           ' Messages for listing missing files.
-Dim bSupress    As Boolean          ' If yes, stop further popups about missing files
+Dim bSupress    As Boolean          ' Stop further popups about missing files?
 
 On Error GoTo ErrorHandler
 
@@ -69,11 +74,16 @@ Loop
 
 If strMsg <> vbNullString Then GoTo ExitMissingFile
 
+Set rsFileList = Nothing
+
+SplitObjects: ' ----------------------------------------------------------------
+strSection = "SplitObjects"
+Call splitObjectNames
+
 Cleanup: ' --------------------------------------------------------------------
 strSection = "Cleanup"
 Call updateLog("Populate table_usage table")
 sqlDependencyMapper = True
-Set rsFileList = Nothing
 Exit Function
 
 ErrorHandler: ' ----------------------------------------------------------------
@@ -88,11 +98,12 @@ Debug.Print Now() & " " & strFnName & "." & strSection & ": " _
 Call showErrorHandlerPopup(strFnName, strSection, _
     "There are no files to parse", _
     "Check that the script_folder table contains the correct folders, " _
-    & "and that 'Find .SQL files' (function populateFileList) has run first.", _
-    vbOKOnly)
+    & "and that 'Find .SQL files' (function populateFileList) has run first." _
+    , vbOKOnly)
 Exit Function
 
 ExitMissingFile: ' ------------------------------------------------------------
+' User chose to quit after an error message
 Debug.Print Now() & " " & strFnName & "." & strSection & ": " & strMsg
 
 End Function
@@ -103,26 +114,30 @@ Function populateFileList() As Boolean
 ' Requirements:
 '   Reference -  Microsoft Scripting Runtime (for FileSystemObject)
 ' Version Control:
-' Vers  Author         Authoriser   Date        Change
-' 1     Sara Gleghorn  --           24/03/2020  Original.
-' 2     Sara Gleghorn  --           06/04/2020  Handles apostrophes in filenames.
-'                                               Added updated error handler.
-'                                               Removed unused variables (i, bLogInfo)
-
+' Vers  Author          Date        Change
+' 1     Sara Gleghorn   24/03/2020  Original.
+' 1.1   Sara Gleghorn   06/04/2020  Handles apostrophes in filenames.
+'                                   Added updated error handler.
+'                                   Removed unused variables (i, bLogInfo)
+' 1.1.1 Sara Gleghorn   15/04/2020  Whitespace tidy
 ' *****************************************************************************
 Definitions: ' ----------------------------------------------------------------
-Dim strFnName       As String           ' The name of this function (for debugging messages)
-Dim strSection      As String           ' The name of the strSection (for debugging messages)
+Dim strFnName       As String           ' The name of this function
+                                        ' (for debugging messages)
+Dim strSection      As String           ' The name of the strSection
+                                        ' (for debugging messages)
 Dim db              As DAO.Database     ' This Database
-Dim strSQL          As String           ' Text for strSQL query (easier debugging)
+Dim strSQL          As String           ' Inline query text
 Dim rsFolderList    As DAO.Recordset    ' Will hold our list of folders
 Dim strFolderPath   As String           ' The name of our folder
-Dim colFiles        As Collection       ' Collection of filenames inside the folder
-Dim strFilePath     As String           ' The name of our file as we iterate through our collection
+Dim colFiles        As Collection       ' Collection of filenames
+Dim strFilePath     As String           ' Filepath currently being processed
 Dim i               As Integer          ' For looping
 Dim strMsg          As String           ' For error messaging
 Dim FSO             As FileSystemObject ' For navigating files.
-                                        ' Dir() is faster, but is global so can interupt Dir() in calling or called functions
+                                        ' Dir() is faster, but is global,
+                                        ' so can interupt Dir() in calling
+                                        ' or called functions
 Dim fsoFolder       As Folder
 
 On Error GoTo ErrorHandler
@@ -134,7 +149,9 @@ strSection = "CheckPrerequisites"
 Set db = CurrentDb
 
 ' Check table exists
-If databaseObjectExists("script_folder", "table", db) = False Then GoTo ErrorMissingTable
+If databaseObjectExists("script_folder", "table", db) = False Then
+    GoTo ErrorMissingTable
+End If
 
 ' Check folders listed in our table exist
 ' This means if we've typo'd a folder, we quit early,
@@ -182,7 +199,10 @@ Do Until rsFolderList.EOF = True
     If Right(strFolderPath, 1) <> "\" Then strFolderPath = strFolderPath & "\"
        
     ' Retrieve the files
-    Set colFiles = retrieveFilesInFolder(strFolderPath, rsFolderList!include_subfolders, "*.SQL")
+    Set colFiles = retrieveFilesInFolder( _
+        strFolderPath, _
+        rsFolderList!include_subfolders, _
+        "*.SQL")
     
     ' If the strFilePath does not already exist in our table, insert it.
     Do While colFiles.Count > 0
@@ -190,7 +210,10 @@ Do Until rsFolderList.EOF = True
         colFiles.Remove 1
         ' Sanitise before insert
         strFilePath = Replace(strFilePath, "'", "''")
-        If DCount("*", "script_filepath", "filepath = '" & strFilePath & "'") = 0 Then
+        If DCount("*", _
+            "script_filepath", _
+            "filepath = '" & strFilePath & "'") = 0 _
+        Then
             strSQL = "INSERT INTO script_filepath VALUES ('" & strFilePath & "');"
             db.Execute strSQL
         End If
@@ -200,7 +223,10 @@ Do Until rsFolderList.EOF = True
 Loop
 
 Cleanup: ' -------------------------------------------------------------------
-If updateLog("Populate script_filepath table") = False Then GoTo ErrorMakingLog
+If updateLog("Populate script_filepath table") = False Then
+    GoTo ErrorMakingLog
+End If
+
 populateFileList = True
 
 Exit Function
@@ -254,41 +280,61 @@ Function extractDependenciesFromQuery(arQuery As Variant, _
 ' Requirements:
 '
 ' Version Control:
-' Vers  Author         Authoriser   Date        Change
-' 1     Sara Gleghorn  --           01/04/2020  Original
-' 2     Sara Gleghorn  --           06/04/2020  Bugfix to stop capturing aliases
-'                                               after source subqueries as tablenames
-' 3     Sara Gleghorn  --           11/04/2020  Bugfix to exclude ";" from table names
+' Vers  Author          Date        Change
+' 1     Sara Gleghorn   01/04/2020  Original
+' 1.0.1 Sara Gleghorn   06/04/2020  Bugfix to stop capturing aliases after
+'                                   source subqueries as tablenames
+' 1.0.2 Sara Gleghorn   11/04/2020  Bugfix to exclude ";" from table names
+' 1.0.3 Sara Gleghorn   15/04/2020  Whitespace tidy
 ' *****************************************************************************
 ' Expected Parameters:
-'Dim arQuery()    As Variant  ' The query to parse, with the linenumber then the line content
+'Dim arQuery()       As Variant  ' The query to parse:
+                                 ' [0, n] linenumber,
+                                 ' [1, n] line content
 'Dim strSource       As String   ' The query source or filepath
-'Dim strSourceType   As String   ' What type of query source e.g. SQL File, Access QueryDef
+'Dim strSourceType   As String   ' Where this query exists
+                                 ' e.g. SQL File, Access QueryDef
 Definitions: '-----------------------------------------------------------------
-Dim strFnName           As String           ' The name of this function (for debugging messages)
-Dim strSection          As String           ' The name of the section (for debugging messages)
+Dim strFnName           As String           ' The name of this function
+                                            ' (for debugging messages)
+Dim strSection          As String           ' The name of the section
+                                            ' (for debugging messages)
 
 Dim db                  As DAO.Database     ' This db
-Dim strQry              As String           ' Query for our recordset
-Dim strQryInsert        As String           ' Query for our insert statements, when a dependency is found.
+Dim strQry              As String           ' Query to retrieve next expected
+                                            ' SQL command
+Dim strQryInsert        As String           ' Query for our insert statements,
+                                            ' when a dependency is found.
 Dim rsSeek              As DAO.Recordset    ' Recordset of phrases to look for
-Dim iLine               As Integer          ' What line of our query are we on?
-Dim iChar               As Integer          ' For looping through each character of our query
-Dim strChar             As String           ' Holds the character we're currently lexing
-Dim bSkipChar           As Boolean          ' Whether to skip adding this character to our phrase capture
-Dim bStringData         As Boolean          ' Are we currently inside a text string (e.g. 'things' in: "select 'things' as stuff")
-Dim bIdentifier         As Boolean          ' Are we currently inside an identifier string, where we need to extend our phrase beyond spaces? (e.g. [my column] in "SELECT [my column] FROM mytable;"
+Dim iLine               As Integer          ' Current query line
+Dim iChar               As Integer          ' Current character position
+Dim strChar             As String           ' Current character being parsed
+Dim bSkipChar           As Boolean          ' Skip adding current character to
+                                            ' phrase capture
+Dim bStringData         As Boolean          ' Is this character part of a literal
+                                            ' text string? (e.g. 'things' in:
+                                            '   "SELECT 'things'
+                                            '   FROM stuff")
+Dim bIdentifier         As Boolean          ' Is this part of an identifier,
+                                            ' which may include spaces?
+                                            ' (e.g. [my table] in
+                                            '   "SELECT myColumn
+                                            '   FROM [my table];"
 Dim bPhrase             As Boolean          ' Do we have a completed word?
 Dim strPhrase           As String           ' Our parsed phrase
-Dim strCommand          As String           ' What our query is e.g. SELECT, INSERT INTO, etc
+Dim strCommand          As String           ' What this table name is used for
+                                            ' e.g. SELECT, INSERT INTO, WITH
 Dim bCaptureSourceMode  As Boolean          ' Are we capturing a source?
-Dim bCaptureAliasMode   As Boolean          ' Are we expecting an alias (prevents us capturing aliases as sources)
+Dim bCaptureAliasMode   As Boolean          ' Are we expecting an alias?
+                                            ' (prevent recording aliases as
+                                            ' tables)
 Dim bSubquery           As Boolean          ' Are we parsing a subquery?
-Dim iBrackets           As Integer          ' How many brackets do we have open?
+Dim iBrackets           As Integer          ' To keep track of brackets
 Dim arSubquery()        As Variant          ' Will hold our subquery.
-Dim iSubqueryRow        As Integer
+Dim iSubqueryRow        As Integer          ' Row of our subquery array
 Dim strSubquery         As String           ' For holding our subquery content
-Dim strPhraseSubstitute As String           ' If strPhrase contains characters that break Regex, then use this.
+Dim strPhraseSubstitute As String           ' strPhrase with Regex breaking
+                                            ' content removed.
 
 On Error GoTo ErrorHandler
 strFnName = "extractDependenciesFromQuery"
@@ -301,9 +347,11 @@ strCommand = vbNullString
 Set db = CurrentDb
 
 ' Move some of our syntax tables into a recordset for speed
-' Queries have a structure - we'll have a command or CTE first, then look for our table sources
+' Queries have a structure - we'll have a command or CTE first,
+' then look for our table sources
 strQry = "SELECT * FROM syntax_phrases WHERE parse_type IN ('command', 'common table expression')"
 Set rsSeek = db.OpenRecordset(strQry)
+' These should already be null, but assist when debugging.
 strQry = vbNullString
 strChar = vbNullString
 bSkipChar = False
@@ -324,7 +372,7 @@ strSection = "Parse"
 ' We can't split the query into an array because split() will not detect
 ' when a split is inappropriate (e.g. within a comment or quote).
 ' So we will loop through per character.
-' We are only interested in tables - column names and conditions will not be parsed.
+' We are only interested in tables - columns and conditions will not be parsed.
 
 For iLine = LBound(arQuery, 2) To UBound(arQuery, 2) ' Each line
 
@@ -407,14 +455,21 @@ For iLine = LBound(arQuery, 2) To UBound(arQuery, 2) ' Each line
             
             If iBrackets = 0 _
             Or iChar = Len(arQuery(1, iLine)) Then
-                ' It is either the end of the subquery or the end of the line. Add the line so far into an array
+                ' It is either the end of the subquery or the end of the line.
+                ' Add the line so far into an array
                 arSubquery(0, iSubqueryRow) = arQuery(0, iLine)
                 arSubquery(1, iSubqueryRow) = strSubquery
                 strSubquery = vbNullString
             End If
             
             If iBrackets = 0 Then
-                If extractDependenciesFromQuery(arSubquery, strSource, strSourceType) = False Then GoTo ErrorSubqueryParseFailed
+                If extractDependenciesFromQuery( _
+                    arSubquery, _
+                    strSource, _
+                    strSourceType) = False _
+                Then
+                    GoTo ErrorSubqueryParseFailed
+                End If
                 bSubquery = False
                 strSubquery = vbNullString
                 iSubqueryRow = 0
@@ -452,14 +507,14 @@ For iLine = LBound(arQuery, 2) To UBound(arQuery, 2) ' Each line
                     strQryInsert = "INSERT INTO table_usage (" _
                         & vbNewLine & "    " & "query_source_type, " _
                         & vbNewLine & "    " & "query_source, " _
-                        & vbNewLine & "    " & "table_name, " _
+                        & vbNewLine & "    " & "query_object, " _
                         & vbNewLine & "    " & "line_number, " _
                         & vbNewLine & "    " & "command " _
                         & vbNewLine & ") VALUES ( " _
                         & vbNewLine & "    " & "'" & strSourceType & "', " _
                         & vbNewLine & "    " & "'" & strSource & "', " _
                         & vbNewLine & "    " & "'" & strPhrase & "', " _
-                        & vbNewLine & "    " & "'" & arQuery(0, iLine) & "', " _
+                        & vbNewLine & "    " & "'" & arQuery(0, iLine) & "'," _
                         & vbNewLine & "    " & "'" & strCommand & "' " _
                         & vbNewLine & ")"
                     db.Execute strQryInsert
@@ -480,13 +535,11 @@ For iLine = LBound(arQuery, 2) To UBound(arQuery, 2) ' Each line
                 If strPhrase = vbNullString Then
                     bPhrase = False
                 Else
-                    Debug.Print Now() & " " & strFnName & "." & strSection & ": " _
-                    & strPhrase
-                    
                     ' Find exact matches to this phrase
                     rsSeek.MoveFirst
+                    ' Catch TSQL's "SELECT ... INTO"
                     If strCommand = "SELECT" And strPhrase = "INTO" Then
-                        rsSeek.FindFirst "[parse_phrase] = 'SELECT INTO'" ' Seperable command
+                        rsSeek.FindFirst "[parse_phrase] = 'SELECT INTO'"
                     Else
                         rsSeek.FindFirst "[parse_phrase] = '" & strPhrase & "'"
                     End If
@@ -501,33 +554,52 @@ For iLine = LBound(arQuery, 2) To UBound(arQuery, 2) ' Each line
                         Select Case rsSeek!parse_Type
                             Case "common table expression"
                                 strCommand = rsSeek!parse_phrase
-                                strQry = "SELECT * FROM syntax_phrases WHERE parse_type IN ('command')"
+                                strQry = "SELECT * " _
+                                    & "FROM syntax_phrases " _
+                                    & "WHERE parse_type IN ('command')"
                             Case "command"
                                 strCommand = rsSeek!parse_phrase
-                                strQry = "SELECT * FROM syntax_phrases WHERE parse_type IN ('command','source','modify','union','into','common table expression','apply')"
+                                strQry = "SELECT * " _
+                                    & "FROM syntax_phrases " _
+                                    & "WHERE parse_type IN (" _
+                                    & "'command','source','modify','union'," _
+                                    & "'into','common table expression'," _
+                                    & "'apply')"
                             Case "source"
-                                strQry = "SELECT * FROM syntax_phrases WHERE parse_type IN ('command','source','union','condition','group', 'where', 'order')"
-                                If strCommand = "SELECT INTO" Then strCommand = "SELECT"
+                                strQry = "SELECT * " _
+                                    & "FROM syntax_phrases " _
+                                    & "WHERE parse_type IN ('command'," _
+                                    & "'source','union','condition','group'," _
+                                    & "'where', 'order')"
+                                If strCommand = "SELECT INTO" Then
+                                    strCommand = "SELECT"
+                                End If
                         End Select
                         bPhrase = False
                         strPhrase = vbNullString
                     Else
-                        ' Check if there are any partial matches (e.g. INSERT INTO for INSERT)
+                        ' Check if there are any partial matches
+                        ' (e.g. INSERT INTO for INSERT)
                         rsSeek.MoveFirst
                         
                         strPhraseSubstitute = strPhrase
                         
                         Select Case strPhrase
-                            Case "[", "?", "#", "*"
-                                strPhraseSubstitute = Replace(strPhrase, "[", "[[]")
-                                strPhraseSubstitute = Replace(strPhrase, "?", "[?]")
-                                strPhraseSubstitute = Replace(strPhrase, "#", "[#]")
-                                strPhraseSubstitute = Replace(strPhrase, "*", "[*]")
+                            Case "[", "?", "#", "*" ' TODO: Check this works
+                                strPhraseSubstitute = Replace( _
+                                    strPhrase, "[", "[[]")
+                                strPhraseSubstitute = Replace( _
+                                    strPhrase, "?", "[?]")
+                                strPhraseSubstitute = Replace( _
+                                    strPhrase, "#", "[#]")
+                                strPhraseSubstitute = Replace( _
+                                    strPhrase, "*", "[*]")
                         End Select
-                        rsSeek.FindFirst "[parse_phrase] LIKE '" & strPhraseSubstitute & " *'" ' Include trailing space
+                        rsSeek.FindFirst "[parse_phrase] LIKE '" _
+                            & strPhraseSubstitute & " *'"
                     
                         If Not rsSeek.NoMatch Then
-                            ' This may be the first word in a multiple-word command.
+                            ' We may have first word in a multi-word command.
                             bPhrase = False
                             If strChar = " " Or strChar = vbTab Then
                                 strPhrase = strPhrase & " "
@@ -595,37 +667,47 @@ Function extractDependenciesFromFile(strFilePath As String) As Boolean
 ' Requirements:
 '
 ' Version Control:
-' Vers  Author         Authoriser   Date        Change
-' 1     Sara Gleghorn  --           31/03/2020  Original
-' 2     Sara Gleghorn  --           06/04/2020  Add recognition for EXECUTE IMMEDIATE queries.
-'                                               Added showErrorHandlerPopup calls
-' 3     Sara Gleghorn  --           11/04/2020  Fixed error on logging errors in files
-'                                               when there are apostrophes in filename.
+' Vers  Author          Date        Change
+' 1     Sara Gleghorn   31/03/2020  Original
+' 1.1   Sara Gleghorn   06/04/2020  Add recognition for EXECUTE IMMEDIATE.
+'                                   Added showErrorHandlerPopup calls
+' 1.1.1 Sara Gleghorn   11/04/2020  Fixed error on logging errors in files
+'                                   when there are apostrophes in filename.
+' 1.1.2 Sara Gleghorn   15/04/2020  Whitespace and comments tidy
 ' *****************************************************************************
 ' Expected Parameters:
 'Dim strFilePath    As String  ' The script to extract dependancies from
 
 Definitions: '-----------------------------------------------------------------
-Dim strFnName       As String           ' The name of this function (for debugging messages)
-Dim strSection      As String           ' The name of the section (for debugging messages)
+Dim strFnName       As String           ' The name of this function
+                                        ' (for debugging messages)
+Dim strSection      As String           ' The name of the section
+                                        ' (for debugging messages)
 
 Dim db              As DAO.Database     ' This database
 Dim strErrorSQL     As String           ' String for error logging query
-Dim strTempPath     As String           ' The folder we'll store our copy in while parsing it.
-Dim FSO             As FileSystemObject ' So we don't break any current global Dir() usage
-Dim fileTemp        As file             ' For reading our file through FSO
-Dim ts              As TextStream       ' Contents of our file
-Dim strLine         As String           ' Holds one line of script
-Dim iFileLine       As Integer          ' File linenumber
-Dim iQueryLine      As Integer          ' Line number counter
-Dim iComment        As Integer          ' For tracking multiline comments
-Dim arQuery         As Variant          ' Holds our entire file
-Dim iChar           As Integer
-Dim strCleanLine    As String           ' For passing lines after multiline comments
-Dim bQueryEnd       As Boolean
-Dim bLiteralString  As Boolean          ' For escaping semicolons within code
+Dim strTempPath     As String           ' Path to copy our file to while
+                                        ' reading it (prevent locking of
+                                        ' operational scripts)
+Dim FSO             As FileSystemObject ' Windows File System Object
+Dim fileTemp        As file             ' Our copy of the file to be parsed
+Dim ts              As TextStream       ' Contents of fileTemp
+Dim strLine         As String           ' Contents of one line of ts
+Dim iFileLine       As Integer          ' Line number counter
+Dim iQueryLine      As Integer          ' Line number counter within one query
+Dim iComment        As Integer          ' For tracking multiline comments, as
+                                        ' some platforms allow nesting comments
+Dim arQuery()       As Variant          ' Holds one query, for passing to
+                                        ' extractDependenciesFromQuery()
+                                        ' [0, n] iFileLine,
+                                        ' [1, n] Query text on this line
+Dim iChar           As Integer          ' Current character
+Dim strCleanLine    As String           ' strLine after removing commented code
+Dim bQueryEnd       As Boolean          ' We have reached the end of a query
+Dim bLiteralString  As Boolean          ' We are inside a literal string,
+                                        ' (So semi colons don't end the query)
 Dim strRemainder    As String           ' Any code remaining after semicolon
-Dim bTransaction    As Boolean          ' Are we inside an EXECUTE IMMEDIATE transaction?
+Dim bTransaction    As Boolean          ' Are we inside an EXECUTE IMMEDIATE?
 
 On Error GoTo ErrorHandler
 strFnName = "extractScriptDependencies"
@@ -637,7 +719,10 @@ Set FSO = New FileSystemObject
 If FSO.FileExists(strFilePath) = False Then GoTo ErrorBadFile
 
 ' Temporary Directory Exists
-strTempPath = DLookup("configuration", "config", "description = 'Temporary File Location'")
+strTempPath = DLookup( _
+    "configuration", _
+    "config", _
+    "description = 'Temporary File Location'")
 If IsNull(strTempPath) Then
     strTempPath = "C:\Temp\" ' Default
     Debug.Print Now() & " " & strFnName & "." & strSection & ": " _
@@ -654,25 +739,29 @@ If FSO.FolderExists(strTempPath) = False Then
 End If
 
 CopyFileToTemp: ' -------------------------------------------------------------
-' Copy the file to a location in our C:\ drive so that we don't lock files for other users
+' Copy the file to a location in our C:\ drive,
+' so that we don't lock files for other users
 strSection = "CopyFileToTemp"
 
-strTempPath = strTempPath & Right(strFilePath, Len(strFilePath) - InStrRev(strFilePath, "\"))
+strTempPath = strTempPath & Right( _
+    strFilePath, _
+    Len(strFilePath) - InStrRev(strFilePath, "\"))
 If strFilePath = strTempPath Then GoTo ErrorSamePath
 FSO.CopyFile strFilePath, strTempPath, True
 Set fileTemp = FSO.GetFile(strTempPath)
 
 ParseFile: ' -------------------------------------------------------------
-
-' Set an array to pass
+strSection = "ParseFile"
+' Set up an array to hold one query,
+' to be passed to extractDependenciesFromQuery()
 ReDim arQuery(1, 0)
+
 ' Open and loop through our temp file, extracting all references to tables
 Set ts = fileTemp.OpenAsTextStream(ForReading, TristateUseDefault)
 
 Do While ts.AtEndOfStream = False
     ' Split into individual queries
 
-    
     If strRemainder = vbNullString Then
         If iQueryLine > UBound(arQuery, 2) Then
             ReDim Preserve arQuery(1, iQueryLine)
@@ -696,8 +785,12 @@ Do While ts.AtEndOfStream = False
                     iComment = iComment - 1
                 Else
                     If iComment = 0 Then
-                        strCleanLine = strCleanLine & Mid(strLine, iChar + 1, 1)
-                        iChar = iChar + 1 ' Because end comment takes up 2 characters
+                        strCleanLine = strCleanLine & Mid( _
+                            strLine, _
+                            iChar + 1, _
+                            1)
+                        ' End comment is two characters, so skip 1
+                        iChar = iChar + 1
                     End If
                 End If
             Next
@@ -730,18 +823,24 @@ Do While ts.AtEndOfStream = False
         ' Check if it's inside a literal string
         If InStr(strLine, "'") = 0 Then
             bQueryEnd = True
-            strRemainder = Trim(Mid(strLine, InStr(strLine, ";") + 1, Len(strLine) - (InStr(strLine, ";"))))
+            strRemainder = Trim(Mid(strLine, InStr(strLine, ";") + 1, _
+                Len(strLine) - (InStr(strLine, ";"))))
             strLine = Trim(Left(strLine, InStr(strLine, ";")))
         Else
             For iChar = 1 To Len(strLine)
-                If bTransaction = True And Mid(strLine, iChar, 2) = "''" Then
+                If bTransaction = True _
+                And Mid(strLine, iChar, 2) = "''" Then
                     bLiteralString = Not bLiteralString
-                ElseIf bTransaction = False And Mid(strLine, iChar, 1) = "'" Then
+                ElseIf bTransaction = False _
+                And Mid(strLine, iChar, 1) = "'" Then
                     bLiteralString = Not bLiteralString
                 ElseIf Mid(strLine, iChar, 1) = ";" Then
                     If bLiteralString = False Then
                         bQueryEnd = True
-                        strRemainder = Mid(strLine, iChar + 1, Len(strLine) - iChar)
+                        strRemainder = Mid( _
+                            strLine, _
+                            iChar + 1, _
+                            Len(strLine) - iChar)
                         strLine = Trim(Left(strLine, iChar))
                         If bTransaction = True Then
                             ' Chop off the "';" at the end
@@ -768,10 +867,19 @@ Do While ts.AtEndOfStream = False
     
     If bQueryEnd = True Then
     
-        If extractDependenciesFromQuery(arQuery, strFilePath, "SQL File") = False Then
+        If extractDependenciesFromQuery( _
+            arQuery, _
+            strFilePath, _
+            "SQL File") = False _
+        Then
             strErrorSQL = "INSERT INTO parse_errors ( " _
-                & vbNewLine & "    " & "#" & Format(Now(), "dd-mmm-yyyy hh:nn:ss") & "#, " _
-                & vbNewLine & "    " & "'" & Replace(strFilePath, "'", "''") & "'" _
+                & vbNewLine & "    " & "#" & Format( _
+                    Now(), _
+                    "dd-mmm-yyyy hh:nn:ss") & "#, " _
+                & vbNewLine & "    " & "'" & Replace( _
+                    strFilePath, _
+                    "'", _
+                    "''") & "'" _
                 & vbNewLine & "    " & "Error parsing query within file." _
                 & vbNewLine & "    " & "'" & iFileLine & "')"
             db.Execute strErrorSQL
@@ -793,10 +901,19 @@ And IsEmpty(arQuery(0, 0)) Then
     ' Do Nothing
 Else
     ' Parse it
-    If extractDependenciesFromQuery(arQuery, strFilePath, "SQL File") = False Then
+    If extractDependenciesFromQuery( _
+        arQuery, _
+        strFilePath, _
+        "SQL File") = False _
+    Then
         strErrorSQL = "INSERT INTO parse_errors ( " _
-            & vbNewLine & "    " & "#" & Format(Now(), "dd-mmm-yyyy hh:nn:ss") & "#, " _
-            & vbNewLine & "    " & "'" & Replace(strFilePath, "'", "''") & "'" _
+            & vbNewLine & "    " & "#" & Format( _
+                Now(), _
+                "dd-mmm-yyyy hh:nn:ss") & "#, " _
+            & vbNewLine & "    " & "'" & Replace( _
+                strFilePath, _
+                "'", _
+                "''") & "'" _
             & vbNewLine & "    " & "Error parsing query within file." _
             & vbNewLine & "    " & "'" & iFileLine & "')"
         db.Execute strErrorSQL
@@ -812,7 +929,8 @@ extractDependenciesFromFile = True
 
 ts.Close
 If FSO.FileExists(strTempPath) = True Then
-    ' FileCopy will have inherited file permissions. Remove ReadOnly if it was inherited.
+    ' FileCopy will have inherited file permissions.
+    ' Remove ReadOnly if it was inherited.
     If fileTemp.Attributes And ReadOnly Then
         fileTemp.Attributes = fileTemp.Attributes - ReadOnly
     End If
@@ -827,7 +945,12 @@ Exit Function
 ErrorHandler: ' ----------------------------------------------------------------
 Debug.Print Now() & " " & strFnName & "." & strSection & ": " _
     & "Error: " & Err.Description
-Call showErrorHandlerPopup(strFnName, strSection, Err.Description, , vbCritical)
+Call showErrorHandlerPopup( _
+    strFnName, _
+    strSection, _
+    Err.Description, _
+    , _
+    vbCritical)
 Exit Function
 
 ErrorBadFile: ' ---------------------------------------------------------------
@@ -848,8 +971,7 @@ Debug.Print Now() & " " & strFnName & "." & strSection & ": " _
     & vbNewLine & "    Quitting."
 Call showErrorHandlerPopup(strFnName, strSection, _
     "Original file and destination for temporary copy are the same: " _
-    & vbNewLine & """" & strFilePath & """" _
-    & vbNewLine & "Aborting function as a precaution against deleting original files.", _
+    & vbNewLine & """" & strFilePath & """", _
     "Change the Temporary File Location as defined in the 'config' table.", _
     vbCritical)
 Exit Function
@@ -859,39 +981,34 @@ Debug.Print Now() & " " & strFnName & "." & strSection & ": " _
     & "Errors while trying to make the directory: " _
     & vbNewLine & "    " & """" & strTempPath & """" _
     & vbNewLine & "    Quitting."
-Call showErrorHandlerPopup(strFnName, strSection, "Could not make directory: " _
+Call showErrorHandlerPopup( _
+    strFnName, _
+    strSection, _
+    "Could not make directory: " _
     & vbNewLine & """" & strTempPath & """", _
     "Check whether you have permissions to the path in config", _
     vbCritical)
 Exit Function
 End Function
 
-
-Function RegExTest() As Boolean
-Dim regEx           As RegExp
-Set regEx = New RegExp
-regEx.Pattern = "\/\*.*\*\/"
-
-Debug.Print regEx.Replace(" /* Comment /* Nested Comment */ End of line", vbNullString)
-
-End Function
-
-
 Function updateLog(strEventDescription As String) As Boolean
 ' Purpose: ********************************************************************
 ' Update the log table in this db
 ' Version Control:
-' Vers  Author         Authoriser   Date        Change
-' 1     Sara Gleghorn  --           23/03/2020  Original
+' Vers  Author          Date        Change
+' 1     Sara Gleghorn   23/03/2020  Original
+' 1.0.1 Sara Gleghorn   15/04/2020  Whitespace tidy
 ' *****************************************************************************
 ' Expected Parameters:
-'Dim strEventDescription    As String           ' A comma separated list of filetypes to record
+'Dim strEventDescription    As String    ' What happened?
 
 Definitions: ' ----------------------------------------------------------------
-Dim strFnName               As String           ' The name of this function (for debugging messages)
-Dim strSection              As String           ' The name of the strSection (for debugging messages)
-Dim db                      As Database         ' This Database
-Dim strSQL                  As String           ' Update/Insert query text
+Dim strFnName               As String   ' The name of this function
+                                        ' (for debugging messages)
+Dim strSection              As String   ' The name of the strSection
+                                        ' (for debugging messages)
+Dim db                      As Database ' This Database
+Dim strSQL                  As String   ' Update/Insert query text
 
 On Error GoTo ErrorHandler
 strFnName = "updateLog"
@@ -902,7 +1019,10 @@ Set db = CurrentDb
 updateLogTable: '---------------------------------------------------------------
 strSection = "updateLogTable"
 
-If DCount("*", "log_last_update", "event_description = '" & strEventDescription & "'") = 0 Then
+If DCount("*", _
+    "log_last_update", _
+    "event_description = '" & strEventDescription & "'") = 0 _
+Then
     strSQL = "INSERT INTO log_last_update VALUES (" _
         & vbNewLine & "    '" & strEventDescription & "', " _
         & vbNewLine & "    #" & Format(Now(), "dd-mmm-yyyy hh:nn:ss") & "#, " _
@@ -910,9 +1030,11 @@ If DCount("*", "log_last_update", "event_description = '" & strEventDescription 
         & vbNewLine & ");"
 Else
     strSQL = "UPDATE log_last_update SET" _
-        & vbNewLine & "    event_date = #" & Format(Now(), "dd-mmm-yyyy hh:nn:ss") & "#, " _
+        & vbNewLine & "    event_date = #" & Format( _
+            Now(), _
+            "dd-mmm-yyyy hh:nn:ss") & "#, " _
         & vbNewLine & "    user_id = '" & Environ$("username") & "'" _
-        & vbNewLine & "WHERE event_description = '" & strEventDescription & "';"
+        & vbNewLine & "WHERE event_description = '" & strEventDescription & "'"
 End If
 
 db.Execute strSQL, dbFailOnError
@@ -926,3 +1048,176 @@ Debug.Print Now() & " " & strFnName & "." & strSection & ": " _
     & "Error: " & Err.Description
 End Function
 
+Function splitObjectNames() As Boolean
+' Purpose: ********************************************************************
+' Splits composite object references (schema.table or table@database) into
+' separate fields.
+' We could use select case / iif and manage everything on one mega query.
+' But for readability, I have split into several separate queries.
+' Version Control:
+' Vers  Author          Date        Change
+' 1     Sara Gleghorn   15/04/2020  Original
+' *****************************************************************************
+' Expected Parameters:
+' None
+
+Definitions: '-----------------------------------------------------------------
+Dim strFnName       As String       ' The name of this function
+                                    ' (for debugging messages)
+Dim strSection      As String       ' The name of the section
+                                    ' (for debugging messages)
+Dim db              As DAO.Database ' This database
+Dim strSQL          As String       ' Update query text.
+
+On Error GoTo ErrorHandler
+CheckPrerequisites: ' ---------------------------------------------------------
+strFnName = "splitObjectNames"
+strSection = "CheckPrerequisites"
+
+Set db = CurrentDb
+If DCount("*", "table_usage") = 0 Then GoTo ErrorNothingToUpdate
+
+SplitOracleLinkedDb: ' ---------------------------------------------------------
+strSection = "SplitOracleDbLinks"
+' We won't attempt to break the db link into server and db,
+' because we do not know if Global Naming is in use.
+
+' "Schema.Table@DatabaseLink" (Oracle linked database, with explicit schema)
+strSQL = "UPDATE table_usage " _
+    & vbNewLine & "SET object_database = RIGHT( " _
+    & vbNewLine & "        query_object, " _
+    & vbNewLine & "        LEN(query_object) - INSTR(query_object, '@')), " _
+    & vbNewLine & "    object_schema = LEFT( " _
+    & vbNewLine & "        query_object, " _
+    & vbNewLine & "        INSTR(query_object, '.') - 1), " _
+    & vbNewLine & "    object_table = MID( " _
+    & vbNewLine & "        query_object, " _
+    & vbNewLine & "        INSTR(1, query_object, '.') + 1, " _
+    & vbNewLine & "        LEN(query_object) - InStr(query_object, '.') " _
+    & vbNewLine & "        - (Len(query_object) - InStr(query_object, '@')) " _
+    & vbNewLine & "        - 1) " _
+    & vbNewLine & "WHERE query_object LIKE '*.*@*' " _
+    & vbNewLine & "AND object_table IS NULL;"
+db.Execute strSQL, dbFailOnError
+
+' "Table@DatabaseLink" (Oracle linked database, implicit local schema)
+strSQL = "UPDATE table_usage " _
+    & vbNewLine & "SET object_database = RIGHT( " _
+    & vbNewLine & "        query_object," _
+    & vbNewLine & "        LEN(query_object) - INSTR(query_object, '@'))," _
+    & vbNewLine & "    object_table = LEFT(" _
+    & vbNewLine & "        query_object," _
+    & vbNewLine & "        INSTR(query_object, '@') - 1) " _
+    & vbNewLine & "WHERE query_object LIKE '*@*' " _
+    & vbNewLine & "AND object_table IS NULL;"
+db.Execute strSQL, dbFailOnError
+
+SplitMSSSQLLinkedDb: ' --------------------------------------------------------
+strSection = "SplitMSSSQLLinkedDb"
+
+' Server.Database.Schema.Table (MSSQL linked database including server)
+strSQL = "UPDATE table_usage " _
+    & vbNewLine & "SET object_server = LEFT( " _
+    & vbNewLine & "        query_object, " _
+    & vbNewLine & "        INSTR(query_object, '.') - 1)," _
+    & vbNewLine & "    object_database = MID(" _
+    & vbNewLine & "        query_object," _
+    & vbNewLine & "        InStr(query_object, '.') + 1," _
+    & vbNewLine & "        LEN(query_object) - INSTR(query_object, '.')" _
+    & vbNewLine & "        - (LEN(query_object) - InStr(" _
+    & vbNewLine & "                INSTR(query_object, '.')+1," _
+    & vbNewLine & "                query_object," _
+    & vbNewLine & "                '.') + 1))," _
+    & vbNewLine & "    object_schema = MID(" _
+    & vbNewLine & "        query_object," _
+    & vbNewLine & "        INSTR(" _
+    & vbNewLine & "            INSTR(query_object, '.') + 1," _
+    & vbNewLine & "            query_object,'.') + 1," _
+    & vbNewLine & "        LEN(query_object) - INSTR(" _
+    & vbNewLine & "            INSTR(query_object, '.')+1," _
+    & vbNewLine & "            query_object," _
+    & vbNewLine & "            '.')" _
+    & vbNewLine & "        - (LEN(query_object) - INSTRREV("
+strSQL = strSQL _
+    & vbNewLine & "            query_object, " _
+    & vbNewLine & "            '.') + 1))," _
+    & vbNewLine & "    object_table = RIGHT(" _
+    & vbNewLine & "        query_object," _
+    & vbNewLine & "        LEN(query_object) - INSTRREV(query_object,'.'))" _
+    & vbNewLine & "WHERE query_object LIKE '*.*.*.*'" _
+    & vbNewLine & "AND object_table IS NULL;"
+db.Execute strSQL, dbFailOnError
+
+' Database.Schema.Table (MSQL linked database)
+strSQL = "Update table_usage " _
+    & vbNewLine & "SET object_database = LEFT(" _
+    & vbNewLine & "        query_object," _
+    & vbNewLine & "        INSTR(query_object, '.') - 1)," _
+    & vbNewLine & "    object_schema = MID(" _
+    & vbNewLine & "        query_object," _
+    & vbNewLine & "        INSTR(query_object, '.') + 1," _
+    & vbNewLine & "        LEN(query_object) - INSTR(query_object, '.') - (" _
+    & vbNewLine & "            LEN(query_object) - INSTR(" _
+    & vbNewLine & "                INSTR(query_object, '.')+1," _
+    & vbNewLine & "                query_object," _
+    & vbNewLine & "                '.') + 1))," _
+    & vbNewLine & "    object_table = RIGHT(query_object," _
+    & vbNewLine & "        LEN(query_object) - InStrRev(query_object,'.'))" _
+    & vbNewLine & "WHERE query_object LIKE '*.*.*'" _
+    & vbNewLine & "AND object_table IS NULL;"
+db.Execute strSQL, dbFailOnError
+
+SplitSchemaTable: '------------------------------------------------------------
+strSection = "SplitSchemaTable"
+
+' Schema.Table
+strSQL = "Update table_usage" _
+    & vbNewLine & "SET object_schema = LEFT(" _
+    & vbNewLine & "        query_object, INSTR(query_object,'.') - 1)," _
+    & vbNewLine & "    object_table = RIGHT(" _
+    & vbNewLine & "        query_object," _
+    & vbNewLine & "        LEN(query_object) - INSTR(query_object,'.'))" _
+    & vbNewLine & "WHERE query_object LIKE '*.*'" _
+    & vbNewLine & "AND object_table IS NULL;"
+db.Execute strSQL, dbFailOnError
+
+OnlyTable: '-------------------------------------------------------------------
+strSection = "OnlyTable"
+
+strSQL = "UPDATE table_usage" _
+    & vbNewLine & "SET object_table = query_object" _
+    & vbNewLine & "WHERE object_table Is Null;"
+db.Execute strSQL, dbFailOnError
+
+Cleanup: ' --------------------------------------------------------------------
+strSection = "Cleanup"
+splitObjectNames = True
+Exit Function
+
+ErrorHandler: ' ---------------------------------------------------------------
+Debug.Print Now() & " " & strFnName & "." & strSection & ": " _
+    & "Error: " & Err.Description
+Call showErrorHandlerPopup(strFnName, strSection, Err.Description)
+Exit Function
+
+ErrorNothingToUpdate: '--------------------------------------------------------
+Debug.Print Now() & " " & strFnName & "." & strSection & ": " _
+    & "Error: There is nothing in the table_usage table to update"
+Call showErrorHandlerPopup(strFnName, strSection, "There are no results in the table_usage table.", "Check whether the files in 'script_filepath' table contain valid SQL code.")
+Exit Function
+
+End Function
+
+
+Function identifyExternalTables() As Boolean
+' Purpose: ********************************************************************
+' Detect tables that are expected to exist, outside of our script folders
+' (i.e. we don't have a script that creates them)
+' Version Control:
+' Vers  Author          Date        Change
+' 1     Sara Gleghorn   23/03/2020  Original
+' *****************************************************************************
+
+
+
+End Function
