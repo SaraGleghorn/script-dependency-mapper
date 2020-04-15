@@ -24,9 +24,19 @@ End Sub
 
 Private Sub btn_getdependencies_Click()
 
-Call sqlDependencyMapper
-MsgBox "Done", vbOKOnly
-DoCmd.OpenTable ("table_usage")
+If sqlDependencyMapper() = False Then
+    MsgBox "There were errors parsing all files.", vbOKOnly
+ElseIf DCount("*", "table_usage") <= 0 Then
+    MsgBox "No dependencies retrieved. Check if the SQL in the script_filepath files is valid", vbOKOnly
+    DoCmd.OpenTable ("script_filepath")
+ElseIf DCount("*", "parse_errors") > 0 Then
+    MsgBox "Dependencies retrieved, but please check the files in the parse_errors log", vbOKOnly
+    DoCmd.OpenTable ("table_usage")
+    DoCmd.OpenTable ("parse_errors")
+Else
+    MsgBox "Dependencies retrieved without errors", vbOKOnly
+    DoCmd.OpenTable ("table_usage")
+End If
 
 End Sub
 

@@ -12,6 +12,7 @@ Function sqlDependencyMapper() As Boolean
 '                                       Improved error handling around missing
 '                                       files
 ' 1.2       Sara Gleghorn   15/04/2020  Added splitObjectNames call
+'                                       Whitespace tidy
 ' *****************************************************************************
 ' Expected Parameters:
 ' None
@@ -674,6 +675,7 @@ Function extractDependenciesFromFile(strFilePath As String) As Boolean
 ' 1.1.1 Sara Gleghorn   11/04/2020  Fixed error on logging errors in files
 '                                   when there are apostrophes in filename.
 ' 1.1.2 Sara Gleghorn   15/04/2020  Whitespace and comments tidy
+' 1.1.3 Sara Gleghorn   15/04/2020  Fixed error on logging errors
 ' *****************************************************************************
 ' Expected Parameters:
 'Dim strFilePath    As String  ' The script to extract dependancies from
@@ -713,6 +715,7 @@ On Error GoTo ErrorHandler
 strFnName = "extractScriptDependencies"
 CheckPrerequisites: ' ---------------------------------------------------------
 strSection = "CheckPrerequisites"
+Set db = CurrentDb
 
 ' File Exists
 Set FSO = New FileSystemObject
@@ -872,16 +875,16 @@ Do While ts.AtEndOfStream = False
             strFilePath, _
             "SQL File") = False _
         Then
-            strErrorSQL = "INSERT INTO parse_errors ( " _
+            strErrorSQL = "INSERT INTO parse_errors VALUES ( " _
                 & vbNewLine & "    " & "#" & Format( _
                     Now(), _
                     "dd-mmm-yyyy hh:nn:ss") & "#, " _
                 & vbNewLine & "    " & "'" & Replace( _
                     strFilePath, _
                     "'", _
-                    "''") & "'" _
-                & vbNewLine & "    " & "Error parsing query within file." _
-                & vbNewLine & "    " & "'" & iFileLine & "')"
+                    "''") & "'," _
+                & vbNewLine & "    'Error parsing query within file.'," _
+                & vbNewLine & "    '" & iFileLine & "')"
             db.Execute strErrorSQL
             strErrorSQL = vbNullString
         End If
@@ -906,16 +909,16 @@ Else
         strFilePath, _
         "SQL File") = False _
     Then
-        strErrorSQL = "INSERT INTO parse_errors ( " _
+        strErrorSQL = "INSERT INTO parse_errors VALUES ( " _
             & vbNewLine & "    " & "#" & Format( _
                 Now(), _
                 "dd-mmm-yyyy hh:nn:ss") & "#, " _
             & vbNewLine & "    " & "'" & Replace( _
                 strFilePath, _
                 "'", _
-                "''") & "'" _
-            & vbNewLine & "    " & "Error parsing query within file." _
-            & vbNewLine & "    " & "'" & iFileLine & "')"
+                "''") & "'," _
+            & vbNewLine & "    'Error parsing query within file.'," _
+            & vbNewLine & "    '" & iFileLine & "')"
         db.Execute strErrorSQL
         strErrorSQL = vbNullString
     End If
