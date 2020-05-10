@@ -7,11 +7,11 @@ Function sqlDependencyMapper() As Boolean
 ' Calls extractDependenciesFromFile for each file in script_filepath
 ' Version Control:
 ' Vers      Author          Date        Change
-' 1         Sara Gleghorn   31/03/2020  Original
-' 1.1       Sara Gleghorn   06/04/2020  Added showErrorHandlerPopup calls
+' 0.0.9     Sara Gleghorn   31/03/2020  Original
+' 1.0.0     Sara Gleghorn   06/04/2020  Added showErrorHandlerPopup calls
 '                                       Improved error handling around missing
 '                                       files
-' 1.2       Sara Gleghorn   15/04/2020  Added splitObjectNames call
+' 1.2.0     Sara Gleghorn   15/04/2020  Added splitObjectNames call
 '                                       Whitespace tidy
 ' *****************************************************************************
 ' Expected Parameters:
@@ -116,11 +116,11 @@ Function populateFileList() As Boolean
 '   Reference -  Microsoft Scripting Runtime (for FileSystemObject)
 ' Version Control:
 ' Vers  Author          Date        Change
-' 1     Sara Gleghorn   24/03/2020  Original.
-' 1.1   Sara Gleghorn   06/04/2020  Handles apostrophes in filenames.
+' 0.0.9 Sara Gleghorn   24/03/2020  Original.
+' 1.0.0 Sara Gleghorn   06/04/2020  Handles apostrophes in filenames.
 '                                   Added updated error handler.
 '                                   Removed unused variables (i, bLogInfo)
-' 1.1.1 Sara Gleghorn   15/04/2020  Whitespace tidy
+' 1.2.0 Sara Gleghorn   15/04/2020  Whitespace tidy
 ' *****************************************************************************
 Definitions: ' ----------------------------------------------------------------
 Dim strFnName       As String           ' The name of this function
@@ -282,11 +282,11 @@ Function extractDependenciesFromQuery(arQuery As Variant, _
 '
 ' Version Control:
 ' Vers  Author          Date        Change
-' 1     Sara Gleghorn   01/04/2020  Original
-' 1.0.1 Sara Gleghorn   06/04/2020  Bugfix to stop capturing aliases after
+' 0.0.9 Sara Gleghorn   01/04/2020  Original
+' 1.0.0 Sara Gleghorn   06/04/2020  Bugfix to stop capturing aliases after
 '                                   source subqueries as tablenames
-' 1.0.2 Sara Gleghorn   11/04/2020  Bugfix to exclude ";" from table names
-' 1.0.3 Sara Gleghorn   15/04/2020  Whitespace tidy
+' 1.1.0 Sara Gleghorn   11/04/2020  Bugfix to exclude ";" from table names
+' 1.2.0 Sara Gleghorn   15/04/2020  Whitespace tidy
 ' *****************************************************************************
 ' Expected Parameters:
 'Dim arQuery()       As Variant  ' The query to parse:
@@ -666,16 +666,29 @@ Function extractDependenciesFromFile(strFilePath As String) As Boolean
 ' extractDependenciesFromQuery.
 '
 ' Requirements:
+'   Reference: Microsoft ActiveX Object Library (for ADODB.Stream)
 '
 ' Version Control:
 ' Vers  Author          Date        Change
-' 1     Sara Gleghorn   31/03/2020  Original
-' 1.1   Sara Gleghorn   06/04/2020  Add recognition for EXECUTE IMMEDIATE.
+' 0.9.0 Sara Gleghorn   31/03/2020  Original
+' 1.0.0 Sara Gleghorn   06/04/2020  Add recognition for EXECUTE IMMEDIATE.
 '                                   Added showErrorHandlerPopup calls
-' 1.1.1 Sara Gleghorn   11/04/2020  Fixed error on logging errors in files
+' 1.1.0 Sara Gleghorn   11/04/2020  Fixed error on logging errors in files
 '                                   when there are apostrophes in filename.
-' 1.1.2 Sara Gleghorn   15/04/2020  Whitespace and comments tidy
-' 1.1.3 Sara Gleghorn   15/04/2020  Fixed error on logging errors
+' 1.2.0 Sara Gleghorn   15/04/2020  Whitespace and comments tidy
+'                                   Fixed error on logging errors
+' 1.3.0 Sara Gleghorn   10/05/2020  Changed ts from TextStream to ADODB.Stream
+'                                   for greater flexibility on reading files.
+'                                   Fixed issues with EXECUTE IMMEDIATE not
+'                                   being captured if there was a previous
+'                                   command (e.g WHENEVER...) that didn't end
+'                                   with a semi colon.
+'                                   Improved detection for end of file so we
+'                                   don't need to repeat logic for catching
+'                                   the last query if it doesn't have a semi-
+'                                   colon.
+'                                   Amended version control to be inline with
+'                                   all other versioning in this file.
 ' *****************************************************************************
 ' Expected Parameters:
 'Dim strFilePath    As String  ' The script to extract dependancies from
@@ -693,8 +706,10 @@ Dim strTempPath     As String           ' Path to copy our file to while
                                         ' operational scripts)
 Dim FSO             As FileSystemObject ' Windows File System Object
 Dim fileTemp        As file             ' Our copy of the file to be parsed
-Dim ts              As TextStream       ' Contents of fileTemp
+'Dim ts              As TextStream       ' Contents of fileTemp
+Dim ts              As ADODB.Stream     ' Contents of fileTemp
 Dim strLine         As String           ' Contents of one line of ts
+Dim iFileLength     As Integer          ' Length of the text file
 Dim iFileLine       As Integer          ' Line number counter
 Dim iQueryLine      As Integer          ' Line number counter within one query
 Dim iComment        As Integer          ' For tracking multiline comments, as
@@ -710,6 +725,8 @@ Dim bLiteralString  As Boolean          ' We are inside a literal string,
                                         ' (So semi colons don't end the query)
 Dim strRemainder    As String           ' Any code remaining after semicolon
 Dim bTransaction    As Boolean          ' Are we inside an EXECUTE IMMEDIATE?
+Dim bSkip           As Boolean          ' Whether to skip to the next query
+                                        ' Used for some transactions
 
 On Error GoTo ErrorHandler
 strFnName = "extractScriptDependencies"
@@ -760,16 +777,36 @@ strSection = "ParseFile"
 ReDim arQuery(1, 0)
 
 ' Open and loop through our temp file, extracting all references to tables
-Set ts = fileTemp.OpenAsTextStream(ForReading, TristateUseDefault)
+'Set ts = fileTemp.OpenAsTextStream(ForReading, TristateUseDefault)
+'Set ts = ts.Open(fileTemp, adModeRead)
+Set ts = New ADODB.Stream
+With ts
+    ts.Charset = "utf-8"
+    .Type = adTypeText
+    .LineSeparator = adCRLF
+    .Open
+    .LoadFromFile (fileTemp)
+End With
 
-Do While ts.AtEndOfStream = False
-    ' Split into individual queries
+' Get the number of Lines
+iFileLength = 0
+Do While ts.EOS = False
+    strLine = ts.ReadText(adReadLine)
+    iFileLength = iFileLength + 1
+Loop
 
+' Reset to the beginning and split the file into individual queries
+ts.Position = 0
+
+Do While ts.EOS = False
+    
+    ' If we ended a query midline,
+    ' add the remainder to the beginning of the new query.
     If strRemainder = vbNullString Then
         If iQueryLine > UBound(arQuery, 2) Then
             ReDim Preserve arQuery(1, iQueryLine)
         End If
-        strLine = Trim(Replace(ts.ReadLine, vbTab, " "))
+        strLine = Trim(Replace(ts.ReadText(adReadLine), vbTab, " "))
         iFileLine = iFileLine + 1
     Else
         ReDim arQuery(1, iQueryLine)
@@ -808,34 +845,66 @@ Do While ts.AtEndOfStream = False
         strLine = Left(strLine, InStr(1, strLine, "--") - 1)
     End If
     
-    ' Check for transactions
+    ' Strip out transactions
     Select Case strLine
-        Case "BEGIN", "END;", "/", "COMMIT", "COMMIT;"
+        Case "BEGIN", "END;", "/", "COMMIT", "COMMIT;", "WHENEVER", "EXIT", "QUIT"
             strLine = vbNullString
     End Select
+
+    If Left(strLine, 8) = "WHENEVER" Then
+        strLine = vbNullString
+    End If
     
     If InStr(1, strLine, "EXECUTE IMMEDIATE") <> 0 Then
         bTransaction = True
-        strLine = Replace(strLine, "EXECUTE IMMEDIATE '", "")
     End If
     
+   
     ' Check for semi colons signalling the end of the query
-    If InStr(strLine, ";") = 0 Then
-        ' Do Nothing
-    Else
-        ' Check if it's inside a literal string
-        If InStr(strLine, "'") = 0 Then
-            bQueryEnd = True
-            strRemainder = Trim(Mid(strLine, InStr(strLine, ";") + 1, _
-                Len(strLine) - (InStr(strLine, ";"))))
-            strLine = Trim(Left(strLine, InStr(strLine, ";")))
+    If bTransaction = False Then
+        If InStr(strLine, ";") = 0 Then
+            If InStr(strLine, "'") = 0 Then
+            Else
+                For iChar = 1 To Len(strLine)
+                    If Mid(strLine, iChar, 1) = "'" Then
+                        bLiteralString = Not bLiteralString
+                    End If
+                Next
+            End If
         Else
             For iChar = 1 To Len(strLine)
-                If bTransaction = True _
-                And Mid(strLine, iChar, 2) = "''" Then
+                If Mid(strLine, iChar, 1) = "'" Then
                     bLiteralString = Not bLiteralString
-                ElseIf bTransaction = False _
-                And Mid(strLine, iChar, 1) = "'" Then
+                ElseIf Mid(strLine, iChar, 1) = ";" Then
+                    If bLiteralString = False Then
+                        bQueryEnd = True
+                        strRemainder = Mid( _
+                            strLine, _
+                            iChar + 1, _
+                            Len(strLine) - iChar)
+                        strLine = Trim(Left(strLine, iChar))
+                        Exit For
+                    End If
+                End If
+            Next
+        End If
+    ElseIf bTransaction = True _
+    And bSkip = False Then
+        If InStr(strLine, "INTO") = 0 _
+        And InStr(strLine, "USING") = 0 _
+        And InStr(strLine, ";") = 0 Then
+            If InStr(strLine, "'") = 0 Then
+                ' Do nothing
+            Else
+                For iChar = 1 To Len(strLine)
+                    If Mid(strLine, iChar, 1) = "'" Then
+                        bLiteralString = Not bLiteralString
+                    End If
+                Next
+            End If
+        Else
+            For iChar = 1 To Len(strLine)
+                If Mid(strLine, iChar, 1) = "'" Then
                     bLiteralString = Not bLiteralString
                 ElseIf Mid(strLine, iChar, 1) = ";" Then
                     If bLiteralString = False Then
@@ -852,6 +921,52 @@ Do While ts.AtEndOfStream = False
                         Exit For
                     End If
                 End If
+                
+                If bLiteralString = False Then
+                    If iChar <= Len(strLine) - Len("INTO") Then
+                        If Mid(strLine, iChar, 4) = "INTO" Then
+                            strLine = Left(strLine, iChar - 1)
+                            bSkip = True
+                        End If
+                    End If
+                    
+                    If iChar <= Len(strLine) - Len("USING") Then
+                        If Mid(strLine, iChar, 4) = "USING" Then
+                            strLine = Left(strLine, iChar - 1)
+                            bSkip = True
+                        End If
+                    End If
+                End If
+            Next
+        End If
+    ElseIf bTransaction = True _
+    And bSkip = True Then
+        If InStr(strLine, ";") = 0 Then
+            If InStr(strLine, "'") = 0 Then
+                ' Do Nothing
+            Else
+                For iChar = 1 To Len(strLine)
+                    If Mid(strLine, iChar, 1) = "'" Then
+                        bLiteralString = Not bLiteralString
+                    End If
+                Next
+            End If
+            strLine = vbNullString
+        Else
+            For iChar = 1 To Len(strLine)
+                If Mid(strLine, iChar, 1) = "'" Then
+                    bLiteralString = Not bLiteralString
+                ElseIf Mid(strLine, iChar, 1) = ";" Then
+                    If bLiteralString = False Then
+                        bQueryEnd = True
+                        strRemainder = Mid( _
+                            strLine, _
+                            iChar + 1, _
+                            Len(strLine) - iChar)
+                        strLine = ";"
+                        Exit For
+                    End If
+                End If
             Next
         End If
     End If
@@ -860,7 +975,14 @@ Do While ts.AtEndOfStream = False
         
         ' Manage transaction syntax
         If bTransaction = True Then
+        
+            If Left(strLine, 17) = "EXECUTE IMMEDIATE" Then
+                ' Strip out the "EXECUTE IMMEDIATE" and the first apostrophe
+                strLine = Trim(Replace(strLine, "EXECUTE IMMEDIATE", ""))
+                strLine = Right(strLine, Len(strLine) - 1)
+            End If
             strLine = Replace(strLine, "''", "'")
+            
         End If
         
         arQuery(0, iQueryLine) = iFileLine
@@ -868,7 +990,20 @@ Do While ts.AtEndOfStream = False
         iQueryLine = iQueryLine + 1
     End If
     
-    If bQueryEnd = True Then
+    ' When the end of a query is detected, extract its dependencies
+    If bQueryEnd = True _
+    Or ( _
+        iFileLine = iFileLength _
+        And strRemainder = vbNullString) _
+    Then
+    
+        If bSkip = True Then
+            If Right(arQuery(0, UBound(arQuery, 2)), 1) = "'" Then
+                arQuery(0, UBound(arQuery, 2)) = _
+                    Left(arQuery(0, UBound(arQuery, 2)), _
+                        Len(arQuery(0, UBound(arQuery, 2))) - 1)
+            End If
+        End If
     
         If extractDependenciesFromQuery( _
             arQuery, _
@@ -891,6 +1026,8 @@ Do While ts.AtEndOfStream = False
         iQueryLine = 0
         ReDim arQuery(1, iQueryLine)
         bQueryEnd = False
+        bLiteralString = False
+        bSkip = False
     End If
 Loop
 
@@ -903,34 +1040,25 @@ If UBound(arQuery, 2) = 0 _
 And IsEmpty(arQuery(0, 0)) Then
     ' Do Nothing
 Else
-    ' Parse it
-    If extractDependenciesFromQuery( _
-        arQuery, _
-        strFilePath, _
-        "SQL File") = False _
-    Then
-        strErrorSQL = "INSERT INTO parse_errors VALUES ( " _
-            & vbNewLine & "    " & "#" & Format( _
-                Now(), _
-                "dd-mmm-yyyy hh:nn:ss") & "#, " _
-            & vbNewLine & "    " & "'" & Replace( _
-                strFilePath, _
-                "'", _
-                "''") & "'," _
-            & vbNewLine & "    'Error parsing query within file.'," _
-            & vbNewLine & "    '" & iFileLine & "')"
-        db.Execute strErrorSQL
-        strErrorSQL = vbNullString
-    End If
-    iQueryLine = 0
-    ReDim arQuery(1, iQueryLine)
+    strErrorSQL = "INSERT INTO parse_errors VALUES ( " _
+        & vbNewLine & "    " & "#" & Format( _
+            Now(), _
+            "dd-mmm-yyyy hh:nn:ss") & "#, " _
+        & vbNewLine & "    " & "'" & Replace( _
+            strFilePath, _
+            "'", _
+            "''") & "'," _
+        & vbNewLine & "    'Missed last query in file.'," _
+        & vbNewLine & "    '" & iFileLine & "')"
+    db.Execute strErrorSQL
+    strErrorSQL = vbNullString
 End If
 
 Cleanup: ' --------------------------------------------------------------------
 strSection = "Cleanup"
 extractDependenciesFromFile = True
-
 ts.Close
+
 If FSO.FileExists(strTempPath) = True Then
     ' FileCopy will have inherited file permissions.
     ' Remove ReadOnly if it was inherited.
@@ -1208,19 +1336,5 @@ Debug.Print Now() & " " & strFnName & "." & strSection & ": " _
     & "Error: There is nothing in the table_usage table to update"
 Call showErrorHandlerPopup(strFnName, strSection, "There are no results in the table_usage table.", "Check whether the files in 'script_filepath' table contain valid SQL code.")
 Exit Function
-
-End Function
-
-
-Function identifyExternalTables() As Boolean
-' Purpose: ********************************************************************
-' Detect tables that are expected to exist, outside of our script folders
-' (i.e. we don't have a script that creates them)
-' Version Control:
-' Vers  Author          Date        Change
-' 1     Sara Gleghorn   23/03/2020  Original
-' *****************************************************************************
-
-
 
 End Function

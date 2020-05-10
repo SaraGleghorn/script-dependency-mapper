@@ -18,10 +18,10 @@ Function showErrorHandlerPopup( _
 ' Requirements:
 '
 ' Version Control:
-' Vers  Author         Authoriser   Date        Change
-' 1     Sara Gleghorn  --           06/04/2020  Original
-' 2     Sara Gleghorn  --           11/04/2020  Fixed a bug preventing message
-'                                               box result being returned
+' Vers      Author          Date        Change
+' 1.0.0     Sara Gleghorn   06/04/2020  Original
+' 1.1.0     Sara Gleghorn   11/04/2020  Fixed a bug preventing message box
+'                                       result being returned
 ' *****************************************************************************
 '' Expected Parameters:
 'Dim strErrorFunction    As String   ' The name of the errored function

@@ -12,8 +12,8 @@ Function databaseObjectExists( _
 '   This includes tables and queries
 ' Requirements: None
 ' Version Control:
-' Vers  Author         Authoriser   Date        Change
-' 1     Sara Gleghorn  --           23/03/2020  Original
+' Vers      Author          Date        Change
+' 1.0.0     Sara Gleghorn   23/03/2020  Original
 ' *****************************************************************************
 '' Expected Parameters:
 'Dim strObjectName  As String   ' The name of the object we're looking for

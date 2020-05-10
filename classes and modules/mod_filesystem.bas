@@ -13,8 +13,8 @@ Function retrieveFilesInFolder( _
 ' Requirements:
 '   Reference -  Microsoft Scripting Runtime (for FileSystemObject)
 ' Version Control:
-' Vers  Author         Authoriser   Date        Change
-' 1     Sara Gleghorn  --           23/03/2020  Original
+' Vers      Author          Date        Change
+' 0.0.9     Sara Gleghorn   23/03/2020  Original
 ' *****************************************************************************
 ' Expected Parameters:
 'Dim folderPath      As String       ' The folder to search in
@@ -105,8 +105,8 @@ Function MakeNestedDirectory(strFolderPath As String) As Boolean
 ' Requirements:
 '   Reference -  Microsoft Scripting Runtime (for FileSystemObject)
 ' Version Control:
-' Vers  Author         Authoriser   Date        Change
-' 1     Sara Gleghorn  --           23/03/2020  Original
+' Vers      Author          Date        Change
+' 0.0.9     Sara Gleghorn   23/03/2020  Original
 ' *****************************************************************************
 ' Expected Parameters:
 'Dim folderPath      As String       ' The folder to create (absolute directory)
