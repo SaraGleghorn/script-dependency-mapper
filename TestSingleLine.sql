@@ -1,0 +1,1 @@
+SELECT everything FROM myTable WHERE things = stuff; --Single line query
